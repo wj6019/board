@@ -113,14 +113,14 @@ const layoutHTML = `
 </head>
 <body>
   <div class="nav"><a href="/">首页</a></div>
-  {{template "content" .}}
+  {{template .Page .}}
 </body>
 </html>
 {{end}}
 `
 
 const indexHTML = `
-{{define "content"}}
+{{define "index_body"}}
 <h1>极简留言板</h1>
 <p class="small">匿名发帖，匿名回复，请文明发言。</p>
 
@@ -152,7 +152,7 @@ const indexHTML = `
 `
 
 const topicHTML = `
-{{define "content"}}
+{{define "topic_body"}}
 <div class="box">
   <div class="topic-title">{{.Topic.Title}}</div>
   <div>{{nl2br .Topic.Content}}</div>
@@ -233,7 +233,7 @@ func main() {
 		},
 	}
 
-	tpl = template.Must(template.New("layout").Funcs(funcMap).Parse(layoutHTML))
+	tpl = template.Must(template.New("root").Funcs(funcMap).Parse(layoutHTML))
 	template.Must(tpl.Parse(indexHTML))
 	template.Must(tpl.Parse(topicHTML))
 
@@ -299,9 +299,11 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	render(w, "layout", struct {
 		Title  string
+		Page   string
 		Topics []Topic
 	}{
 		Title:  "极简留言板",
+		Page:   "index_body",
 		Topics: topics,
 	})
 }
@@ -322,11 +324,13 @@ func topicHandler(w http.ResponseWriter, r *http.Request) {
 		if t.ID == id {
 			render(w, "layout", struct {
 				Title    string
+				Page     string
 				Topic    Topic
 				CanAdmin bool
 				Token    string
 			}{
 				Title:    t.Title,
+				Page:     "topic_body",
 				Topic:    t,
 				CanAdmin: adminOK(token),
 				Token:    token,
