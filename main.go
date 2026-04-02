@@ -44,8 +44,8 @@ var (
 	tpl      *template.Template
 )
 
-const layoutHTML = `
-{{define "layout"}}
+const indexHTML = `
+{{define "index"}}
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -113,104 +113,169 @@ const layoutHTML = `
 </head>
 <body>
   <div class="nav"><a href="/">首页</a></div>
-  {{template .Page .}}
+
+  <h1>极简留言板</h1>
+  <p class="small">匿名发帖，匿名回复，请文明发言。</p>
+
+  <div class="box">
+    <h2>新建主题</h2>
+    <form method="post" action="/topic/new">
+      <p><input type="text" name="author" maxlength="20" placeholder="昵称（可空，默认匿名）"></p>
+      <p><input type="text" name="title" maxlength="80" placeholder="主题标题" required></p>
+      <p><textarea name="content" maxlength="3000" placeholder="写点内容……" required></textarea></p>
+      <p><button type="submit">发布主题</button></p>
+    </form>
+  </div>
+
+  <div class="box">
+    <h2>主题列表</h2>
+    {{if .Topics}}
+      {{range .Topics}}
+        <div style="margin-bottom:18px;">
+          <div class="topic-title"><a href="/topic?id={{.ID}}">{{.Title}}</a></div>
+          <div>{{short .Content}}</div>
+          <div class="meta">{{.Author}} · {{formatTime .CreatedAt}} · {{len .Replies}} 条回复</div>
+        </div>
+      {{end}}
+    {{else}}
+      <p>还没有主题。</p>
+    {{end}}
+  </div>
 </body>
 </html>
 {{end}}
 `
 
-const indexHTML = `
-{{define "index_body"}}
-<h1>极简留言板</h1>
-<p class="small">匿名发帖，匿名回复，请文明发言。</p>
-
-<div class="box">
-  <h2>新建主题</h2>
-  <form method="post" action="/topic/new">
-    <p><input type="text" name="author" maxlength="20" placeholder="昵称（可空，默认匿名）"></p>
-    <p><input type="text" name="title" maxlength="80" placeholder="主题标题" required></p>
-    <p><textarea name="content" maxlength="3000" placeholder="写点内容……" required></textarea></p>
-    <p><button type="submit">发布主题</button></p>
-  </form>
-</div>
-
-<div class="box">
-  <h2>主题列表</h2>
-  {{if .Topics}}
-    {{range .Topics}}
-      <div style="margin-bottom:18px;">
-        <div class="topic-title"><a href="/topic?id={{.ID}}">{{.Title}}</a></div>
-        <div>{{short .Content}}</div>
-        <div class="meta">{{.Author}} · {{formatTime .CreatedAt}} · {{len .Replies}} 条回复</div>
-      </div>
-    {{end}}
-  {{else}}
-    <p>还没有主题。</p>
-  {{end}}
-</div>
-{{end}}
-`
-
 const topicHTML = `
-{{define "topic_body"}}
-<div class="box">
-  <div class="topic-title">{{.Topic.Title}}</div>
-  <div>{{nl2br .Topic.Content}}</div>
-  <div class="meta">{{.Topic.Author}} · {{formatTime .Topic.CreatedAt}}</div>
+{{define "topic"}}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{.Title}}</title>
+  <style>
+    body{
+      max-width:760px;
+      margin:24px auto;
+      padding:0 14px;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+      background:#f7f7f7;
+      color:#222;
+      line-height:1.65;
+    }
+    a{color:#1565c0;text-decoration:none}
+    a:hover{text-decoration:underline}
+    .box{
+      background:#fff;
+      border:1px solid #e5e5e5;
+      border-radius:8px;
+      padding:16px;
+      margin:14px 0;
+    }
+    input[type=text], textarea, input[type=password]{
+      width:100%;
+      box-sizing:border-box;
+      padding:10px;
+      border:1px solid #ccc;
+      border-radius:6px;
+      font-size:14px;
+      background:#fff;
+    }
+    textarea{min-height:110px;resize:vertical}
+    button{
+      background:#111;
+      color:#fff;
+      border:none;
+      border-radius:6px;
+      padding:9px 14px;
+      cursor:pointer;
+    }
+    button:hover{opacity:.92}
+    .meta{
+      color:#777;
+      font-size:13px;
+      margin-top:6px;
+    }
+    .topic-title{
+      font-size:20px;
+      font-weight:600;
+      margin-bottom:4px;
+    }
+    .reply{
+      border-top:1px dashed #e5e5e5;
+      padding-top:12px;
+      margin-top:12px;
+    }
+    .nav{margin-bottom:18px}
+    .small{color:#888;font-size:13px}
+    .danger{background:#b71c1c}
+    form.inline{display:inline}
+  </style>
+</head>
+<body>
+  <div class="nav"><a href="/">首页</a></div>
 
-  {{if .CanAdmin}}
-  <div style="margin-top:12px;">
-    <form class="inline" method="post" action="/topic/delete" onsubmit="return confirm('确定删除这个主题？');">
+  <div class="box">
+    <div class="topic-title">{{.Topic.Title}}</div>
+    <div>{{nl2br .Topic.Content}}</div>
+    <div class="meta">{{.Topic.Author}} · {{formatTime .Topic.CreatedAt}}</div>
+
+    {{if .CanAdmin}}
+    <div style="margin-top:12px;">
+      <form class="inline" method="post" action="/topic/delete" onsubmit="return confirm('确定删除这个主题？');">
+        <input type="hidden" name="topic_id" value="{{.Topic.ID}}">
+        <input type="hidden" name="token" value="{{.Token}}">
+        <button class="danger" type="submit">删除主题</button>
+      </form>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="box">
+    <h2>回复</h2>
+    {{if .Topic.Replies}}
+      {{range .Topic.Replies}}
+        <div class="reply">
+          <div>{{nl2br .Content}}</div>
+          <div class="meta">{{.Author}} · {{formatTime .CreatedAt}}</div>
+          {{if $.CanAdmin}}
+          <div style="margin-top:8px;">
+            <form class="inline" method="post" action="/reply/delete" onsubmit="return confirm('确定删除这条回复？');">
+              <input type="hidden" name="topic_id" value="{{$.Topic.ID}}">
+              <input type="hidden" name="reply_id" value="{{.ID}}">
+              <input type="hidden" name="token" value="{{$.Token}}">
+              <button class="danger" type="submit">删除回复</button>
+            </form>
+          </div>
+          {{end}}
+        </div>
+      {{end}}
+    {{else}}
+      <p>还没有回复。</p>
+    {{end}}
+  </div>
+
+  <div class="box">
+    <h2>发表回复</h2>
+    <form method="post" action="/reply">
       <input type="hidden" name="topic_id" value="{{.Topic.ID}}">
-      <input type="hidden" name="token" value="{{.Token}}">
-      <button class="danger" type="submit">删除主题</button>
+      <p><input type="text" name="author" maxlength="20" placeholder="昵称（可空，默认匿名）"></p>
+      <p><textarea name="content" maxlength="3000" placeholder="写下你的回复……" required></textarea></p>
+      <p><button type="submit">提交回复</button></p>
     </form>
   </div>
-  {{end}}
-</div>
 
-<div class="box">
-  <h2>回复</h2>
-  {{if .Topic.Replies}}
-    {{range .Topic.Replies}}
-      <div class="reply">
-        <div>{{nl2br .Content}}</div>
-        <div class="meta">{{.Author}} · {{formatTime .CreatedAt}}</div>
-        {{if $.CanAdmin}}
-        <div style="margin-top:8px;">
-          <form class="inline" method="post" action="/reply/delete" onsubmit="return confirm('确定删除这条回复？');">
-            <input type="hidden" name="topic_id" value="{{$.Topic.ID}}">
-            <input type="hidden" name="reply_id" value="{{.ID}}">
-            <input type="hidden" name="token" value="{{$.Token}}">
-            <button class="danger" type="submit">删除回复</button>
-          </form>
-        </div>
-        {{end}}
-      </div>
-    {{end}}
-  {{else}}
-    <p>还没有回复。</p>
-  {{end}}
-</div>
-
-<div class="box">
-  <h2>发表回复</h2>
-  <form method="post" action="/reply">
-    <input type="hidden" name="topic_id" value="{{.Topic.ID}}">
-    <p><input type="text" name="author" maxlength="20" placeholder="昵称（可空，默认匿名）"></p>
-    <p><textarea name="content" maxlength="3000" placeholder="写下你的回复……" required></textarea></p>
-    <p><button type="submit">提交回复</button></p>
-  </form>
-</div>
-
-<div class="box">
-  <h2>管理员</h2>
-  <form method="get" action="/topic">
-    <input type="hidden" name="id" value="{{.Topic.ID}}">
-    <p><input type="password" name="token" placeholder="管理员口令"></p>
-    <p><button type="submit">进入管理模式</button></p>
-  </form>
-</div>
+  <div class="box">
+    <h2>管理员</h2>
+    <form method="get" action="/topic">
+      <input type="hidden" name="id" value="{{.Topic.ID}}">
+      <p><input type="password" name="token" placeholder="管理员口令"></p>
+      <p><button type="submit">进入管理模式</button></p>
+    </form>
+  </div>
+</body>
+</html>
 {{end}}
 `
 
@@ -233,8 +298,7 @@ func main() {
 		},
 	}
 
-	tpl = template.Must(template.New("root").Funcs(funcMap).Parse(layoutHTML))
-	template.Must(tpl.Parse(indexHTML))
+	tpl = template.Must(template.New("root").Funcs(funcMap).Parse(indexHTML))
 	template.Must(tpl.Parse(topicHTML))
 
 	load()
@@ -297,13 +361,11 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		return ti.After(tj)
 	})
 
-	render(w, "layout", struct {
+	render(w, "index", struct {
 		Title  string
-		Page   string
 		Topics []Topic
 	}{
 		Title:  "极简留言板",
-		Page:   "index_body",
 		Topics: topics,
 	})
 }
@@ -322,15 +384,13 @@ func topicHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, t := range store.Topics {
 		if t.ID == id {
-			render(w, "layout", struct {
+			render(w, "topic", struct {
 				Title    string
-				Page     string
 				Topic    Topic
 				CanAdmin bool
 				Token    string
 			}{
 				Title:    t.Title,
-				Page:     "topic_body",
 				Topic:    t,
 				CanAdmin: adminOK(token),
 				Token:    token,
