@@ -1,0 +1,42 @@
+name: Build Board
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build linux amd64 binary
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/board main.go
+          chmod +x dist/board
+
+      - name: Package
+        run: |
+          cd dist
+          tar -czf board-linux-amd64.tar.gz board
+          sha256sum board-linux-amd64.tar.gz > board-linux-amd64.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: board-linux-amd64
+          path: |
+            dist/board
+            dist/board-linux-amd64.tar.gz
+            dist/board-linux-amd64.tar.gz.sha256
