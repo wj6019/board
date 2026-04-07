@@ -1,15 +1,16 @@
-name: Build Board
+name: Build and Deploy Board
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
+    env:
+      APP_NAME: board
 
     steps:
       - name: Checkout
@@ -18,25 +19,69 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: "1.22"
 
-      - name: Build linux amd64 binary
+      - name: Build (linux amd64, static, max compatibility)
         run: |
-          mkdir -p dist
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/board main.go
-          chmod +x dist/board
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 \
+          go build -trimpath -ldflags="-s -w" -o ${APP_NAME} main.go
 
-      - name: Package
+      - name: Show binary info
         run: |
-          cd dist
-          tar -czf board-linux-amd64.tar.gz board
-          sha256sum board-linux-amd64.tar.gz > board-linux-amd64.tar.gz.sha256
+          ls -lh ${APP_NAME}
+          sha256sum ${APP_NAME}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      # 上传二进制到服务器
+      - name: Upload binary to server
+        uses: appleboy/scp-action@v0.1.7
         with:
-          name: board-linux-amd64
-          path: |
-            dist/board
-            dist/board-linux-amd64.tar.gz
-            dist/board-linux-amd64.tar.gz.sha256
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "board"
+          target: "/tmp"
+
+      # 远程部署 + 重启（无 systemd）
+      - name: Deploy and restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -eu
+
+            APP_DIR="/root/board"
+            BIN_NAME="board"
+            ENV_FILE="$APP_DIR/.env"
+            LOG_FILE="$APP_DIR/board.log"
+
+            mkdir -p "$APP_DIR"
+
+            # 用新文件替换
+            cp /tmp/board "$APP_DIR/$BIN_NAME"
+            chmod +x "$APP_DIR/$BIN_NAME"
+
+            # 必须有 .env
+            if [ ! -f "$ENV_FILE" ]; then
+              echo "ERROR: $ENV_FILE not found"
+              exit 1
+            fi
+
+            # 停旧进程
+            pkill -x board 2>/dev/null || true
+            sleep 1
+
+            # 启动新进程
+            cd "$APP_DIR"
+            set -a
+            . "$ENV_FILE"
+            set +a
+            nohup "./$BIN_NAME" > "$LOG_FILE" 2>&1 &
+
+            sleep 1
+            echo "===== Deploy Done ====="
+            ps -ef | grep '[b]oard' || true
+            tail -n 30 "$LOG_FILE" || true
