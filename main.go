@@ -333,7 +333,7 @@ const loginHTML = `
 func main() {
 	funcMap := template.FuncMap{
 		"formatTime": func(t time.Time) string {
-			return t.Format("2006-01-02 15:04")
+			return t.In(time.Local).Format("2006-01-02 15:04")
 		},
 		"short": func(s string) string {
 			s = strings.TrimSpace(s)
