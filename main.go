@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -114,7 +117,7 @@ const indexHTML = `
 <body>
   <div class="nav"><a href="/">首页</a></div>
 
-  <h1>极简留言板</h1>
+  <h1>宇宙公司的留言板</h1>
   <p class="small">匿名发帖，匿名回复，请文明发言。</p>
 
   <div class="box">
@@ -279,6 +282,54 @@ const topicHTML = `
 {{end}}
 `
 
+const loginHTML = `
+{{define "login"}}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>登录</title>
+  <style>
+    body{
+      max-width:420px;
+      margin:60px auto;
+      padding:0 14px;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+      color:#222;
+      line-height:1.6;
+    }
+    input[type=password]{
+      width:100%;
+      box-sizing:border-box;
+      padding:10px;
+      border:1px solid #ccc;
+      border-radius:6px;
+      font-size:14px;
+    }
+    button{
+      background:#111;
+      color:#fff;
+      border:none;
+      border-radius:6px;
+      padding:9px 14px;
+      cursor:pointer;
+    }
+    .err{color:#b71c1c}
+  </style>
+</head>
+<body>
+  <h2>请输入访问密码</h2>
+  {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+  <form method="post" action="/login">
+    <p><input type="password" name="password" placeholder="访问密码" required></p>
+    <p><button type="submit">进入留言板</button></p>
+  </form>
+</body>
+</html>
+{{end}}
+`
+
 func main() {
 	funcMap := template.FuncMap{
 		"formatTime": func(t time.Time) string {
@@ -300,9 +351,11 @@ func main() {
 
 	tpl = template.Must(template.New("root").Funcs(funcMap).Parse(indexHTML))
 	template.Must(tpl.Parse(topicHTML))
+	template.Must(tpl.Parse(loginHTML))
 
 	load()
 
+	http.HandleFunc("/login", loginHandler)
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/topic", topicHandler)
 	http.HandleFunc("/topic/new", newTopicHandler)
@@ -312,7 +365,7 @@ func main() {
 
 	port := envOr("PORT", "15230")
 	fmt.Println("Listening on :" + port)
-	_ = http.ListenAndServe(":"+port, logMiddleware(http.DefaultServeMux))
+	_ = http.ListenAndServe(":"+port, logMiddleware(authMiddleware(http.DefaultServeMux)))
 }
 
 func envOr(k, def string) string {
@@ -329,6 +382,83 @@ func adminOK(token string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(token), []byte(real)) == 1
+}
+
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.TrimSpace(os.Getenv("BOARD_PASSWORD")) == "" {
+			http.Error(w, "server misconfigured: BOARD_PASSWORD is empty", http.StatusInternalServerError)
+			return
+		}
+
+		c, err := r.Cookie("board_auth")
+		if err != nil || !authCookieOK(c.Value) {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		render(w, "login", struct{ Err string }{})
+		return
+	case http.MethodPost:
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		real := os.Getenv("BOARD_PASSWORD")
+		if strings.TrimSpace(real) == "" {
+			http.Error(w, "server misconfigured: BOARD_PASSWORD is empty", http.StatusInternalServerError)
+			return
+		}
+
+		pass := r.FormValue("password")
+		if subtle.ConstantTimeCompare([]byte(pass), []byte(real)) != 1 {
+			render(w, "login", struct{ Err string }{Err: "密码错误"})
+			return
+		}
+
+		secure := strings.EqualFold(strings.TrimSpace(os.Getenv("COOKIE_SECURE")), "true")
+		http.SetCookie(w, &http.Cookie{
+			Name:     "board_auth",
+			Value:    authCookieValue(),
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   secure,
+			MaxAge:   86400,
+		})
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func authCookieValue() string {
+	secret := os.Getenv("AUTH_SECRET")
+	if secret == "" {
+		secret = "change-this-in-production"
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte("board-auth-v1"))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func authCookieOK(v string) bool {
+	want := authCookieValue()
+	return subtle.ConstantTimeCompare([]byte(v), []byte(want)) == 1
 }
 
 func logMiddleware(next http.Handler) http.Handler {
@@ -365,7 +495,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		Title  string
 		Topics []Topic
 	}{
-		Title:  "极简留言板",
+		Title:  "宇宙公司的留言板",
 		Topics: topics,
 	})
 }
