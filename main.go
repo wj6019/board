@@ -45,6 +45,9 @@ var (
 	store    Store
 	dataFile = "data.json"
 	tpl      *template.Template
+
+	// 固定写死东八区（UTC+8）
+	cst8 = time.FixedZone("UTC+8", 8*3600)
 )
 
 const indexHTML = `
@@ -333,7 +336,8 @@ const loginHTML = `
 func main() {
 	funcMap := template.FuncMap{
 		"formatTime": func(t time.Time) string {
-			return t.In(time.Local).Format("2006-01-02 15:04")
+			// 无论存储时区是什么，显示时都统一东八区
+			return t.In(cst8).Format("2006-01-02 15:04")
 		},
 		"short": func(s string) string {
 			s = strings.TrimSpace(s)
@@ -365,7 +369,9 @@ func main() {
 
 	port := envOr("PORT", "15230")
 	fmt.Println("Listening on :" + port)
-	_ = http.ListenAndServe(":"+port, logMiddleware(authMiddleware(http.DefaultServeMux)))
+	if err := http.ListenAndServe(":"+port, logMiddleware(authMiddleware(http.DefaultServeMux))); err != nil {
+		fmt.Println("server error:", err)
+	}
 }
 
 func envOr(k, def string) string {
@@ -401,7 +407,6 @@ func authMiddleware(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
@@ -463,7 +468,7 @@ func authCookieOK(v string) bool {
 
 func logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("%s %s %s\n", time.Now().Format("2006-01-02 15:04:05"), r.Method, r.URL.String())
+		fmt.Printf("%s %s %s\n", time.Now().In(cst8).Format("2006-01-02 15:04:05"), r.Method, r.URL.String())
 		next.ServeHTTP(w, r)
 	})
 }
@@ -560,7 +565,7 @@ func newTopicHandler(w http.ResponseWriter, r *http.Request) {
 		Title:     limit(title, 80),
 		Author:    limit(author, 20),
 		Content:   limit(content, 3000),
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().In(cst8),
 		Replies:   []Reply{},
 	}
 	store.NextTopicID++
@@ -606,7 +611,7 @@ func replyHandler(w http.ResponseWriter, r *http.Request) {
 				ID:        store.NextReplyID,
 				Author:    limit(author, 20),
 				Content:   limit(content, 3000),
-				CreatedAt: time.Now(),
+				CreatedAt: time.Now().In(cst8),
 			}
 			store.NextReplyID++
 			store.Topics[i].Replies = append(store.Topics[i].Replies, reply)
